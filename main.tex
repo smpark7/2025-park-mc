@@ -90,6 +90,7 @@
 \tikzstyle{decision} = [diamond, thick, aspect=2, minimum width=2cm, minimum height=2cm, text centered, draw=black, fill=green, text width=6em]
 \tikzstyle{arrow} = [thick,->,>=stealth]
 
+%\title{A Hybrid $\bm{S_N}$-Diffusion Method for Molten Salt Reactor Control Rod Modeling}
 \title{A Hybrid $S_N$-Diffusion Method for Molten Salt Reactor Control Rod Modeling}
 
 %%% Authors (use arabic numbers: 1, 2, 3, etc. for affiliationNumber)
@@ -139,8 +140,9 @@ time-dependent analyses.
 \section{Introduction}\label{sec:1}
 
 \glspl*{MSR} are advanced reactors noted for strong passive safety due to their liquid fuel form,
-negative temperature reactivity feedback, and low operating pressure. While some \gls*{MSR} concepts
-completely eliminated control rods from their designs, many still retain them.
+negative temperature reactivity feedback, and low operating pressure. Nevertheless,
+many \gls*{MSR} concepts retain control rods in their designs for operational, safety, and
+licensing purposes.
 
 Routine time-dependent and spatially-resolved reactor analyses remain in the domain of neutron
 diffusion methods due to the large computational expense of neutron transport methods. Several
@@ -155,7 +157,8 @@ ordinates neutron transport method in subregions containing the control rod to o
 transport corrections for the diffusion method.
 This new method is unique in its approach towards adaptive domain decomposition into transport and
 diffusion problem subdomains through on-the-fly evaluations of the transport correction
-parameter distributions.
+parameter distributions. We verify the method against reference neutron transport solutions from
+OpenMC through several time-independent 1-D test cases.
 
 \section{Theory} \label{sec:theory}
 
@@ -170,14 +173,15 @@ the first-order $S_N$ equations as second-order equations, enabling the use of f
 HYPRE multigrid preconditioners \cite{hypre_hypre_2022}.
 
 The time-independent, multigroup neutron transport equations and boundary conditions defined on the
-3-D spatial domain $\mathcal{D}$ and 2-D unit sphere angular domain $\mathcal{S}$ is:
+3-D spatial domain $\mathcal{D}$ (represented by $\vec{r}$) and 2-D unit sphere angular domain
+$\mathcal{S}$ (represented by $\hat{\Omega}$) is:
 %
 \begin{multline}
-  \hat{\Omega}\cdot\nabla\Psi_g(\vec{r},\hat{\Omega},t) + \Sigma_{t,g}
-  \Psi_g(\vec{r},\hat{\Omega},t) = \\
-  \sum^G_{g'=1}\int_\mathcal{S} \Sigma_s^{g'\rightarrow g}(\hat{\Omega}'\rightarrow\hat{\Omega})
-  \Psi_{g'}(\vec{r},\hat{\Omega}',t)d\hat{\Omega}'
-  + \frac{1}{4\pi}\frac{\chi_{g}}{k}\sum^G_{g'=1} \nu\Sigma_{f,g'} \phi_{g'}(\vec{r},t)
+  \hat{\Omega}\cdot\nabla\Psi_g(\vec{r},\hat{\Omega}) + \Sigma_{t,g}(\vec{r})
+  \Psi_g(\vec{r},\hat{\Omega}) = \\
+  \sum^G_{g'=1}\int_\mathcal{S} \Sigma_s^{g'\rightarrow g}(\vec{r},\hat{\Omega}'\rightarrow\hat{\Omega})
+  \Psi_{g'}(\vec{r},\hat{\Omega}')d\hat{\Omega}'
+  + \frac{1}{4\pi}\frac{\chi_{g}}{k}\sum^G_{g'=1} \nu\Sigma_{f,g'}(\vec{r}) \phi_{g'}(\vec{r})
   \label{eq:mg-nte}
 \end{multline}
 %
@@ -188,6 +192,11 @@ The time-independent, multigroup neutron transport equations and boundary condit
   \label{eq:mg-nte-bc}
 \end{gather}
 %
+where $\Psi_g$ and $\phi_g$ are the angular and scalar neutron fluxes,
+$\Psi^\text{inc}_g$ is the incoming surface flux source, $\alpha^s_g$ is
+the specular reflectivity, and $\hat{\Omega}_r=\hat{\Omega}-2(\hat{\Omega}\cdot\hat{n}_b)\hat{n}_b$
+is the direction of incidence for reflected neutrons.
+
 We define inner products involving volume and surface integrals over the spatial domain for
 expressing the weak formulation of multigroup $S_N$ equations for finite element analysis:
 %
@@ -209,8 +218,8 @@ with $N_b$ being the dimension of the function space. $E_e$ and $E_s$ are index 
 shape functions within each element $e$ or surface $s$.
 
 In addition to the \gls*{SAAF} formulation, a void treatment scheme \cite{wang_diffusion_2014}
-provides numerical stabilization in near-void regions where the $1/\Sigma_{t,g}$ factors in the
-streaming and source terms evaluate to very large values. The final weak formulations of the
+provides numerical stabilization in near-void regions by eliminating $1/\Sigma_{t,g}$ factors in
+the streaming and source terms. The final weak formulations of the
 individual terms in the \gls*{SAAF} multigroup $S_N$ equations are given as:
 %
 \begin{gather}
@@ -366,11 +375,13 @@ $\Psi^\text{inc}_{g,d}$ in Eq.\ \ref{eq:boundary-source} to
   \Psi^\text{inc}_{g,d} = \frac{1}{w}
   \left(\phi^\text{diff}_g-3\hat{\Omega}_d\cdot D_g\nabla\phi^\text{diff}_g\right)
 \end{gather}
+%
+where $w$ is the sum of level-symmetric angular quadrature weights implemented in Moltres.
 
 The angular flux solution to the $S_N$ subproblem defined with these boundary sources typically
 produces accurate drift correction parameters within $V_1$ but tend to be inaccurate
-near $\partial V_1$. Consequently, we define a \textit{buffer region}
-$V_1'$, within $V_1$ adjacent $\partial V_1$, where inaccurate drift correction parameters are
+near $\partial V_1$. Consequently, we define a \textit{buffer region} ($V_1'$) within $V_1$
+and adjacent to $\partial V_1$, where inaccurate drift correction parameters are
 discarded. Right before each
 neutron diffusion iteration, the solver adaptively determines a cutoff boundary for $V_1'$ which
 determines the extent in $V_1$ where the drift correction terms are applied.
@@ -384,16 +395,10 @@ neutron scalar flux gradient.
 
 \section{Model Setup}
 
-We modeled the 1-D models in this work after the \gls*{MSRE} design \cite{robertson_msre_1965}. We
-employed OpenMC \cite{romano_openmc:_2015} for generating group constants
-for the hybrid method and reference solutions for verification. All multigroup
-neutronics simulations ran with an eight neutron energy group structure developed by Jaradat
-\cite{jaradat_development_2021-1} for \gls*{MSRE} analyses. The OpenMC models ran on continuous
-energy (OpenMC-CE) and multigroup (OpenMC-MG) modes and utilized ENDF/B-VII.1.
-
-This work evaluates six 1-D test cases with increasing complexity to verify the $S_N$ and hybrid
-$S_N$-diffusion implementations and to test the performance of the hybrid
-method in response to various geometrical features. The last two cases resemble the
+This work investigates six time-independent 1-D test cases with increasing complexity to verify the
+$S_N$ and hybrid $S_N$-diffusion implementations and to test the performance of the hybrid method
+in response to various geometrical features. We modeled the 1-D models after the \gls*{MSRE} design
+\cite{robertson_msre_1965}. The last two cases most closely resemble the
 reference \gls*{MSRE} design, which has centrally located control rods
 and air-filled rod guide tubes. Figure \ref{fig:case-geom} shows the geometries of Cases 1a to
 3b. All geometries have reflective boundary conditions at $x=0$ cm, thereby
@@ -401,17 +406,27 @@ forming half-core or repeating unit cell models. Cases 1a and 1b are repeating u
 cell models with reflecting boundaries on the right-side boundaries. Cases 2a, 2b, 3a, and 3b
 are 1-D half-core models with vacuum boundaries on the right-side boundaries.
 
+Since the main goal of this work is to provide baseline neutronics verification of the hybrid
+$S_N$-diffusion method, this work excludes \gls*{DNP} modeling. We plan to investigate the hybrid
+method with salt flow-induced \gls*{DNP} movement in future publications.
+
 All material compositions and densities, except the control rod, follow
 reference data at 900 K from \gls*{MSRE} benchmark specifications.
 We reduced the Gd$_2$O$_3$ content in the control rod region from 70 wt\% to 0.35 wt\% to bring the
 rod worth down from approximately 55000 pcm to 20000 pcm in the 1-D models.
+
+We used OpenMC \cite{romano_openmc:_2015} to generate group constants for deterministic methods in
+Moltres and to produce reference solutions for verification. We ran OpenMC models in both
+continuous energy (OpenMC-CE) and multigroup (OpenMC-MG) modes. All multigroup neutronics
+simulations in OpenMC and Moltres ran with an eight neutron energy group structure developed by
+Jaradat \cite{jaradat_development_2021-1} for \gls*{MSRE} analyses.
 %
 \begin{figure}[htb!]
   \centering
   \includegraphics[width=0.75\columnwidth]{case-geometry}
   \caption{Geometries of the 1-D test cases. The material labeled ``mixture'' represents a
     homogeneous mixture of fuel and graphite at a ratio of 22.5\%-77.5\% by volume. All geometries
-    have reflective boundary conditions on the boundary at $x=0$ cm. The right-side boundaries are
+    have reflective boundary conditions on the boundary at $\bm{x=0}$ cm. The right-side boundaries are
     reflective for Cases 1a and 1b, and vacuum for Cases 2a, 2b, 3a, and 3b.}
   \label{fig:case-geom}
 \end{figure}
@@ -426,12 +441,19 @@ the $S_N$ subsolver for maintaining accuracy while minimizing computational cost
 Table \ref{table:sn-tol} lists the number of outer iterations required by the hybrid method for
 a given set of $S_8$ subsolver convergence tolerance values in Case 3b.
 
-\begin{table}[t]
+Figure \ref{fig:sn-tol} shows the $k_\text{eff}$ error estimates relative to the reference value
+when $\epsilon_\text{tol}=10^{-8}$. The hybrid method exhibits superlinear convergence ($q=1.333$)
+with respect to the $S_N$ subsolver convergence tolerance value. Based on the results, setting
+$\epsilon_\text{tol}$ to $10^{-5}$ is the best balance between accuracy and computational
+cost because the $k_\text{eff}$ error is less than 0.01 pcm and the number of outer iterations
+would increase from 2 to 3 if the tolerance value is further tightened.
+
+\begin{table}[h!]
   \begin{minipage}{0.49\columnwidth}
     \centering
     \small
     \caption{Number of outer iterations in hybrid method calculations of Case 3b for a given set of
-    convergence tolerance values imposed on the $S_8$ subsolver.}
+    convergence tolerance values imposed on the $\bm{S_8}$ subsolver.}
     \begin{tabular}{S S}
       \toprule
       {$S_8$ subsolver tolerance} & {No.\ of outer iterations} \\
@@ -450,18 +472,11 @@ a given set of $S_8$ subsolver convergence tolerance values in Case 3b.
     \centering
     \includegraphics[width=0.8\columnwidth]{sn-tol}
     \captionof{figure}{Error estimates of $k_\text{eff}$ in Case 3b as a function of
-    convergence tolerance. $q=1.333$ represents the approximate rate of
+      convergence tolerance. $\bm{q=1.333}$ represents the approximate rate of
     convergence.}
     \label{fig:sn-tol}
   \end{minipage}
 \end{table}
-
-Figure \ref{fig:sn-tol} shows the $k_\text{eff}$ error estimates relative to the reference value
-when $\epsilon_\text{tol}=10^{-8}$. The hybrid method exhibits superlinear convergence ($q=1.333$)
-with respect to the $S_N$ subsolver convergence tolerance value. Based on the results, setting
-$\epsilon_\text{tol}$ to $10^{-5}$ is the best balance between accuracy and computational
-cost because the $k_\text{eff}$ error is less than 0.01 pcm and the number of outer iterations
-would increase from 2 to 3 if the tolerance value is further tightened.
 
 Figure \ref{fig:1d-rho} shows the difference in reactivities of OpenMC-MG, $S_8$, neutron
 diffusion, and hybrid methods relative to OpenMC-CE for all test cases. The standard deviations of
@@ -472,11 +487,11 @@ reactivity values fall within the one or two standard deviation range.
 %
 \begin{figure}[htb!]
   \centering
-  \includegraphics[width=0.75\columnwidth]{rho}
-  \caption{Difference in reactivity $\rho$ of all neutronics methods investigated relative
+  \includegraphics[width=0.73\columnwidth]{rho}
+  \caption{Difference in reactivity, $\bm{\rho}$, of all neutronics methods investigated relative
   to OpenMC-CE.}
   \label{fig:1d-rho}
-  \includegraphics[width=0.75\columnwidth]{worth}
+  \includegraphics[width=0.73\columnwidth]{worth}
   \caption{Percentage difference in rod worth for Cases 2 and 3 of all neutronics methods
   investigated relative to OpenMC-CE.}
   \label{fig:1d-worth}
@@ -516,7 +531,7 @@ of 8\%. The remaining methods cluster around 2.5\% and 3\% percentage difference
 \begin{figure}[p]
   \centering
   \includegraphics[width=0.98\columnwidth]{case-3b-flux-diff}
-  \caption{Absolute difference in neutron group flux distributions for Case 3b from $S_8$,
+  \caption{Absolute difference in neutron group flux distributions for Case 3b from $\bm{S_8}$,
   neutron diffusion, and hybrid methods relative to OpenMC-MG.}
   \label{fig:3b-flux-diff}
 \end{figure}
@@ -530,9 +545,9 @@ provides significant improvements in rod worth estimates over the neutron diffus
 \begin{figure}[t]
   \centering
   \includegraphics[width=\columnwidth]{case-3b-drift}
-  \caption{Group 1 and 8 drift correction ($\vec{D}_g$) $x$-component distributions from the
-  Moltres-hybrid and Moltres-$S_8$ solvers. They show nearly perfect overlap in the interior of the
-  correction subregion ($x=0$ cm to $8$ cm).}
+  \caption{Group 1 and 8 drift correction ($\bm{\vec{D}_g}$) $x$-component distributions from the
+    Moltres-hybrid and Moltres-$\bm{S_8}$ solvers. They show nearly perfect overlap in the interior of the
+  correction subregion ($\bm{x=0}$ cm to $\bm{8}$ cm).}
   \label{fig:3b-drift}
 \end{figure}
 
@@ -570,11 +585,11 @@ distributions indicate that the influence of the rod on the drift, and
 consequently the flux, extend to approximately $x=5$ cm before the drift distribution settles on a
 regular repeating pattern influenced by the fuel-graphite lattice structure. Further work is
 ongoing for the extension of the hybrid method to 2-D and 3-D models and its application to
-time-dependent simulations.
+time-dependent simulations with \gls*{DNP} movement.
 
 \section*{ACKNOWLEDGEMENTS}
 Sun Myung Park was supported by a research assistantship provided by the Department of Nuclear,
-Plasma, \& Radiological Engineering (NPRE) at the University of Illinois Urbana-Champaign (UIUC).
+Plasma, and Radiological Engineering (NPRE) at the University of Illinois Urbana-Champaign (UIUC).
 
 \bibliographystyle{mc2025}
 \bibliography{bibliography}
